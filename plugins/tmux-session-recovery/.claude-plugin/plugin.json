@@ -5,8 +5,8 @@
   "author": {
     "name": "dabd"
   },
-  "homepage": "https://github.com/dabd/claude-tmux-recovery",
-  "repository": "https://github.com/dabd/claude-tmux-recovery",
+  "homepage": "https://github.com/dabd/save-our-sessions",
+  "repository": "https://github.com/dabd/save-our-sessions",
   "license": "MIT",
   "keywords": ["tmux", "claude-code", "session", "recovery", "hooks", "resurrect"]
 }

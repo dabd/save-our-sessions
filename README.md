@@ -1,6 +1,6 @@
-# claude-tmux-recovery
+# save-our-sessions
 
-Recover Claude Code sessions after a tmux restart.
+SOS: recover Claude Code sessions after a tmux restart.
 
 The tmux server dies. You lose which `claude` session ran in which window. This records the mapping as sessions start, then maps restored panes back to the sessions to resume.
 
@@ -11,11 +11,21 @@ A Claude Code plugin marketplace with one plugin:
 ## Install
 
 ```
-/plugin marketplace add dabd/claude-tmux-recovery
-/plugin install tmux-session-recovery@claude-tmux-recovery
+/plugin marketplace add dabd/save-our-sessions
+/plugin install tmux-session-recovery@save-our-sessions
 ```
 
 The [plugin README](plugins/tmux-session-recovery/README.md) covers how it works, verification, and the `CLAUDE_CONFIG_DIR` note.
+
+### The `sos` command
+
+After a restart there is no live Claude to ask, so recovery is a plain shell command. Alias it to the reader:
+
+```bash
+alias sos="$HOME/projects/mystuff/save-our-sessions/plugins/tmux-session-recovery/scripts/tmux-agent-recover.sh"
+```
+
+Type `sos` in any restored pane: it prints the `claude --resume <id>` per window on stdout and the unplaced-sessions report on stderr. It drives nothing.
 
 ## Recovery wiring (tmux-resurrect)
 
@@ -24,7 +34,7 @@ The plugin captures the mapping. Recovery pairs it with [tmux-resurrect](https:/
 1. Snapshot each pane's id alongside every resurrect save. resurrect runs the hook value with `eval` in a plain shell, so point it at the snapshot script directly (not `run-shell`). In `tmux.conf`:
 
    ```tmux
-   set -g @resurrect-hook-post-save-all '"$HOME/path/to/claude-tmux-recovery/plugins/tmux-session-recovery/scripts/tmux-agent-snapshot.sh"'
+   set -g @resurrect-hook-post-save-all '"$HOME/path/to/save-our-sessions/plugins/tmux-session-recovery/scripts/tmux-agent-snapshot.sh"'
    ```
 
    The script builds the format with real tab bytes and drops panes with no id. A `\t` in a tmux format string stays literal, so the inline one-liner version does not work.

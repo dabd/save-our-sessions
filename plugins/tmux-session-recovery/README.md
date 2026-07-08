@@ -22,8 +22,8 @@ The launcher is the command that reattaches the session to the right config dir.
 ## Install
 
 ```
-/plugin marketplace add dabd/claude-tmux-recovery
-/plugin install tmux-session-recovery@claude-tmux-recovery
+/plugin marketplace add dabd/save-our-sessions
+/plugin install tmux-session-recovery@save-our-sessions
 ```
 
 Run more than one Claude config via `CLAUDE_CONFIG_DIR`, say a work `~/.claude` and a personal `~/.claude-personal`? Enable the plugin in each. Config dirs are isolated. A plugin enabled in one does not apply to the other.
