@@ -9,28 +9,37 @@ set -euo pipefail
 sidecar="${TMUX_AGENT_SIDECAR:-${TMUX_CLAUDE_SIDECAR:-$HOME/.local/share/tmux/resurrect/agent-ids.last}}"
 log="${TMUX_AGENT_LOG:-${TMUX_CLAUDE_LOG:-$HOME/.local/share/tmux/claude-sessions.log}}"
 
-# resume_cmd <agent_kind> <id> -> the command string to relaunch that session.
+# resume_cmd <agent_kind> <id> <launcher> -> the command string to relaunch that
+# session. The launcher is the wrapper that pins the right config dir (e.g.
+# claude-personal); kind selects the resume syntax (claude uses --resume, codex
+# a `resume` subcommand). A codex pane that only carries the generic "claude"
+# launcher default is remapped to "codex".
 resume_cmd() {
-  case "$1" in
-    codex) printf 'codex resume %s' "$2" ;;
-    *)     printf 'claude --resume %s' "$2" ;;   # default/claude
+  local kind="$1" id="$2" launcher="${3:-}"
+  case "$kind" in
+    codex)
+      [ -n "$launcher" ] && [ "$launcher" != claude ] || launcher=codex
+      printf '%s resume %s' "$launcher" "$id" ;;
+    *)
+      [ -n "$launcher" ] || launcher=claude
+      printf '%s --resume %s' "$launcher" "$id" ;;
   esac
 }
 
-# lookup <session> <window> <pane> -> "<agent_kind>\t<id>" or empty.
-# Sidecar is the 6-column agent format (kind in $5, id in $6). The persistent
-# log is Claude-only by construction, so its fallback hits are kind "claude".
+# lookup <session> <window> <pane> -> "<agent_kind>\t<id>\t<launcher>" or empty.
+# Sidecar is the 7-column agent format (kind $5, id $6, launcher $7). The
+# persistent log is Claude-only by construction (kind "claude"), launcher in $8;
+# rows predating the launcher column default to "claude".
 lookup() {
   local s="$1" w="$2" p="$3" hit=""
   if [ -f "$sidecar" ]; then
     hit="$(awk -F'\t' -v s="$s" -v w="$w" -v p="$p" \
-      '$1==s && $2==w && $3==p { print $5 "\t" $6; exit }' "$sidecar")"
+      '$1==s && $2==w && $3==p { print $5 "\t" $6 "\t" ($7==""?"claude":$7); exit }' "$sidecar")"
   fi
   if [ -z "$hit" ] && [ -f "$log" ]; then
-    local id
-    id="$(awk -F'\t' -v s="$s" -v w="$w" -v p="$p" \
-      '$3==s && $4==w && $5==p { found=$2 } END { print found }' "$log")"
-    [ -n "$id" ] && hit="claude${tab}${id}"
+    hit="$(awk -F'\t' -v s="$s" -v w="$w" -v p="$p" \
+      '$3==s && $4==w && $5==p { id=$2; lchr=($8==""?"claude":$8) }
+       END { if (id != "") printf "claude\t%s\t%s", id, lchr }' "$log")"
   fi
   printf '%s' "$hit"
 }
@@ -42,8 +51,7 @@ tmux list-panes -a -F "$fmt" \
 | while IFS=$'\t' read -r s w p name; do
     hit="$(lookup "$s" "$w" "$p")"
     if [ -n "$hit" ]; then
-      kind="${hit%%$'\t'*}"
-      id="${hit#*$'\t'}"
-      printf '%s:%s.%s (%s) -> %s\n' "$s" "$w" "$p" "$name" "$(resume_cmd "$kind" "$id")"
+      IFS=$'\t' read -r kind id launcher <<<"$hit"
+      printf '%s:%s.%s (%s) -> %s\n' "$s" "$w" "$p" "$name" "$(resume_cmd "$kind" "$id" "$launcher")"
     fi
   done

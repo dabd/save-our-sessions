@@ -29,7 +29,7 @@ The plugin captures the mapping. Recovery pairs it with [tmux-resurrect](https:/
 
    The script builds the format with real tab bytes and drops panes with no id. A `\t` in a tmux format string stays literal, so the inline one-liner version does not work.
 
-2. After a restart, run `scripts/tmux-agent-recover.sh` to print the resume command per restored pane. It reads the sidecar first, then falls back to the plugin's append log. Match is by position `(session_name, window_index, pane_index)`, with `window_name` as a tiebreak. The reader is agent-neutral: it prints `claude --resume <id>` or `codex resume <id>` based on the recorded agent kind.
+2. After a restart, run `scripts/tmux-agent-recover.sh` to print the resume command per restored pane. It reads the sidecar first, then falls back to the plugin's append log. Match is by position `(session_name, window_index, pane_index)`, with `window_name` as a tiebreak. The reader is agent-neutral and config-dir-aware: it prints `<launcher> --resume <id>` for claude (e.g. `claude-personal --resume <id>` for a session recorded under `~/.claude-personal`) or `<launcher> resume <id>` for codex, based on the recorded agent kind and launcher. Entries predating the launcher column default to `claude`.
 
 Worst-case staleness is the resurrect save interval. The append log closes the gap for a session born and killed between saves.
 
