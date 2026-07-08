@@ -55,7 +55,14 @@ The capture half is this plugin. tmux-resurrect closes the loop.
 
 The scripts are agent-neutral. A pane is recovered if it carries `@agent_session_id` (with `@agent_kind`, default `claude`), or the legacy `@claude_session_id` the SessionStart hook sets. The reader dispatches by kind and launcher: `<launcher> --resume <id>` for claude (e.g. `claude-personal --resume <id>`), `<launcher> resume <id>` for codex. Rows and sidecar entries predating the launcher column default to `claude`, so old logs still recover.
 
-Both honor `TMUX_AGENT_SIDECAR` to override the sidecar path. Default `~/.local/share/tmux/resurrect/agent-ids.last`.
+### Completeness report
+
+Position-keyed recovery can only restore what was live at snapshot time. If a window was later reused by a second session, the first session is stamped over and appears in no restored position: recovery would restore it nowhere and say nothing. To close that gap the reader emits, on stderr, every session the recorder saw that was **not** placed into a restored window, is still resumable (a transcript exists under a known config dir), and was seen recently. stdout stays the clean per-pane placement list, safe to pipe into `tmux send-keys`; the report is advisory on stderr.
+
+- `TMUX_AGENT_RECENT_DAYS` bounds the report's lookback. Default `3`.
+- `TMUX_AGENT_PROJECT_DIRS` (colon-separated `<configdir>/projects` paths) overrides where the resumable check looks for transcripts. Defaults to the active `CLAUDE_CONFIG_DIR` plus `~/.claude` and `~/.claude-personal`.
+
+Both scripts honor `TMUX_AGENT_SIDECAR` to override the sidecar path. Default `~/.local/share/tmux/resurrect/agent-ids.last`.
 
 ## License
 

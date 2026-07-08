@@ -44,14 +44,75 @@ lookup() {
   printf '%s' "$hit"
 }
 
+# resumable <id> -> 0 if a transcript for this id exists under any known config
+# dir, so the completeness report never lists sessions that cannot be resumed.
+# Config dirs: the active one, plus common work/personal split. Override the
+# search roots with TMUX_AGENT_PROJECT_DIRS (colon-separated <configdir>/projects).
+project_dirs() {
+  if [ -n "${TMUX_AGENT_PROJECT_DIRS:-}" ]; then
+    printf '%s' "$TMUX_AGENT_PROJECT_DIRS" | tr ':' '\n'
+    return
+  fi
+  printf '%s\n' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects" \
+                "$HOME/.claude/projects" "$HOME/.claude-personal/projects"
+}
+resumable() {
+  local id="$1" d
+  while IFS= read -r d; do
+    [ -n "$d" ] || continue
+    compgen -G "$d/*/$id.jsonl" >/dev/null 2>&1 && return 0
+  done < <(project_dirs | sort -u)
+  return 1
+}
+
 tab=$'\t'
 fmt="#{session_name}${tab}#{window_index}${tab}#{pane_index}${tab}#{window_name}"
+
+# Placed ids accumulate here (the loop runs in a pipeline subshell, so a file is
+# the reliable way to carry the set out to the completeness pass below).
+placed="$(mktemp)"; trap 'rm -f "$placed"' EXIT
 
 tmux list-panes -a -F "$fmt" \
 | while IFS=$'\t' read -r s w p name; do
     hit="$(lookup "$s" "$w" "$p")"
     if [ -n "$hit" ]; then
       IFS=$'\t' read -r kind id launcher <<<"$hit"
+      printf '%s\n' "$id" >> "$placed"
       printf '%s:%s.%s (%s) -> %s\n' "$s" "$w" "$p" "$name" "$(resume_cmd "$kind" "$id" "$launcher")"
     fi
   done
+
+# --- Completeness report -----------------------------------------------------
+# Position-keyed recovery cannot place a session that was NOT live at snapshot
+# time (e.g. a window later reused by another session displaces the first). Such
+# a session is silently lost unless surfaced. List every id the recorder saw
+# that was NOT placed above, is still resumable, and was seen recently.
+[ -f "$log" ] || exit 0
+
+# Recency cutoff (ISO8601 sorts lexically, so a string compare suffices). Default
+# 3 days; override with TMUX_AGENT_RECENT_DAYS. If `date` cannot compute it, no
+# recency filter is applied (show all unplaced).
+days="${TMUX_AGENT_RECENT_DAYS:-3}"
+cutoff="$(date -u -v-"${days}"d +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+       || date -u -d "${days} days ago" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || printf '')"
+
+# Newest log row per id -> "ts \t id \t title \t launcher", most recent first.
+unplaced="$(awk -F'\t' -v cutoff="$cutoff" '
+  { id=$2; ts=$1; title=$6; lchr=($8==""?"claude":$8)
+    last_ts[id]=ts; last_title[id]=title; last_lchr[id]=lchr }
+  END { for (id in last_ts)
+          if (cutoff=="" || last_ts[id] >= cutoff)
+            printf "%s\t%s\t%s\t%s\n", last_ts[id], id, last_title[id], last_lchr[id] }' \
+  "$log" | sort -r)"
+
+first=1
+while IFS=$'\t' read -r ts id title launcher; do
+  [ -n "$id" ] || continue
+  grep -qxF "$id" "$placed" && continue          # already placed into a window
+  resumable "$id" || continue                    # no transcript -> skip
+  if [ "$first" = 1 ]; then
+    printf '\n--- Unplaced sessions (seen recently, resumable, not tied to a restored window) ---\n' >&2
+    first=0
+  fi
+  printf '(unplaced, last seen %s) "%s" -> %s\n' "$ts" "$title" "$(resume_cmd claude "$id" "$launcher")" >&2
+done <<<"$unplaced"

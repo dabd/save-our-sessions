@@ -33,6 +33,8 @@ The plugin captures the mapping. Recovery pairs it with [tmux-resurrect](https:/
 
 Worst-case staleness is the resurrect save interval. The append log closes the gap for a session born and killed between saves.
 
+The reader also prints, on stderr, a completeness report: sessions the recorder saw that are still resumable but were not placed into any restored window (a window reused by a later session displaces the first, so position-keyed recovery cannot restore it). stdout stays the clean per-pane list for `tmux send-keys`. See the plugin README for `TMUX_AGENT_RECENT_DAYS` and `TMUX_AGENT_PROJECT_DIRS`.
+
 ## License
 
 MIT. See `LICENSE`.
