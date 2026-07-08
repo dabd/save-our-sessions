@@ -6,6 +6,9 @@
 # Agent-neutral. A pane is recorded if it carries either:
 #   @agent_session_id  (+ optional @agent_kind, default "claude")  -- preferred
 #   @claude_session_id (legacy, set by the Claude SessionStart hook) -- kind "claude"
+# @agent_launcher (default "claude") is the wrapper that reattaches the session
+# to its config dir, so a session under a non-default CLAUDE_CONFIG_DIR resumes
+# with the right command (e.g. claude-personal) instead of a bare `claude`.
 #
 # Wire it in tmux.conf (resurrect runs the value with eval in a plain shell, so
 # point at the script directly, NOT via run-shell):
@@ -16,11 +19,13 @@ out="${TMUX_AGENT_SIDECAR:-${TMUX_CLAUDE_SIDECAR:-$HOME/.local/share/tmux/resurr
 mkdir -p "$(dirname "$out")" 2>/dev/null || true
 
 tab=$'\t'
-# Columns: session_name, window_index, pane_index, window_name, agent_kind, session_id
+# Columns: session_name, window_index, pane_index, window_name, agent_kind,
+#          session_id, agent_launcher
 # Prefer @agent_session_id/@agent_kind; fall back to the legacy @claude_session_id.
 fmt="#{session_name}${tab}#{window_index}${tab}#{pane_index}${tab}#{window_name}${tab}"
 fmt+="#{?@agent_kind,#{@agent_kind},claude}${tab}"
-fmt+="#{?@agent_session_id,#{@agent_session_id},#{@claude_session_id}}"
+fmt+="#{?@agent_session_id,#{@agent_session_id},#{@claude_session_id}}${tab}"
+fmt+="#{?@agent_launcher,#{@agent_launcher},claude}"
 
-# Keep only panes whose resolved session id (last field) is non-empty.
-tmux list-panes -a -F "$fmt" | awk -F'\t' 'NF==6 && $6 != "" { print }' > "$out"
+# Keep only panes whose resolved session id (field 6) is non-empty.
+tmux list-panes -a -F "$fmt" | awk -F'\t' 'NF==7 && $6 != "" { print }' > "$out"
