@@ -55,6 +55,10 @@ The capture half is this plugin. tmux-resurrect closes the loop.
 
 The scripts are agent-neutral. A pane is recovered if it carries `@agent_session_id` (with `@agent_kind`, default `claude`), or the legacy `@claude_session_id` the SessionStart hook sets. The reader dispatches by kind and launcher: `<launcher> --resume <id>` for claude (e.g. `claude-personal --resume <id>`), `<launcher> resume <id>` for codex. Rows and sidecar entries predating the launcher column default to `claude`, so old logs still recover.
 
+### Working directory
+
+`claude --resume <id>` is cwd-scoped: it only finds a session whose project slug matches the current directory. tmux-resurrect sometimes restores a pane to a different directory than the session ran in (often `$HOME`), so a bare resume fails with "No conversation found" even with the right launcher. The reader compares each restored pane's current path against the cwd the recorder logged for that session; on a mismatch it prefixes the command with `cd <recorded-cwd> &&`. When they match, it emits the bare resume. Unplaced sessions in the report always get the `cd` prefix, since there is no live pane to match against.
+
 ### Completeness report
 
 Position-keyed recovery can only restore what was live at snapshot time. If a window was later reused by a second session, the first session is stamped over and appears in no restored position: recovery would restore it nowhere and say nothing. To close that gap the reader emits, on stderr, every session the recorder saw that was **not** placed into a restored window, is still resumable (a transcript exists under a known config dir), and was seen recently. stdout stays the clean per-pane placement list, safe to pipe into `tmux send-keys`; the report is advisory on stderr.

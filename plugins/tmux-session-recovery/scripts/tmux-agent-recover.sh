@@ -26,6 +26,31 @@ resume_cmd() {
   esac
 }
 
+# logged_cwd <id> -> the newest non-empty cwd (col 7) the recorder logged for
+# this session, or empty. `claude --resume` is cwd-scoped: it only finds a
+# session whose project slug matches the current directory. resurrect sometimes
+# restores a pane to a different dir than the session ran in, so resume must run
+# from the recorded cwd. The sidecar has no cwd column, hence the log lookup.
+logged_cwd() {
+  [ -f "$log" ] || return 0
+  awk -F'\t' -v id="$1" '$2==id && $7!="" { c=$7 } END { print c }' "$log"
+}
+
+# resume_at <pane_cwd> <agent_kind> <id> <launcher> -> resume command, prefixed
+# with `cd <recorded-cwd> &&` when that cwd is known and differs from the pane's
+# current path. Same dir (or unknown cwd) -> bare resume, so the common case
+# stays clean and paste-safe.
+resume_at() {
+  local pane_cwd="$1" kind="$2" id="$3" launcher="$4" cmd cwd
+  cmd="$(resume_cmd "$kind" "$id" "$launcher")"
+  cwd="$(logged_cwd "$id")"
+  if [ -n "$cwd" ] && [ "$cwd" != "$pane_cwd" ]; then
+    printf 'cd %q && %s' "$cwd" "$cmd"
+  else
+    printf '%s' "$cmd"
+  fi
+}
+
 # lookup <session> <window> <pane> -> "<agent_kind>\t<id>\t<launcher>" or empty.
 # Sidecar is the 7-column agent format (kind $5, id $6, launcher $7). The
 # persistent log is Claude-only by construction (kind "claude"), launcher in $8;
@@ -66,19 +91,19 @@ resumable() {
 }
 
 tab=$'\t'
-fmt="#{session_name}${tab}#{window_index}${tab}#{pane_index}${tab}#{window_name}"
+fmt="#{session_name}${tab}#{window_index}${tab}#{pane_index}${tab}#{window_name}${tab}#{pane_current_path}"
 
 # Placed ids accumulate here (the loop runs in a pipeline subshell, so a file is
 # the reliable way to carry the set out to the completeness pass below).
 placed="$(mktemp)"; trap 'rm -f "$placed"' EXIT
 
 tmux list-panes -a -F "$fmt" \
-| while IFS=$'\t' read -r s w p name; do
+| while IFS=$'\t' read -r s w p name pane_cwd; do
     hit="$(lookup "$s" "$w" "$p")"
     if [ -n "$hit" ]; then
       IFS=$'\t' read -r kind id launcher <<<"$hit"
       printf '%s\n' "$id" >> "$placed"
-      printf '%s:%s.%s (%s) -> %s\n' "$s" "$w" "$p" "$name" "$(resume_cmd "$kind" "$id" "$launcher")"
+      printf '%s:%s.%s (%s) -> %s\n' "$s" "$w" "$p" "$name" "$(resume_at "$pane_cwd" "$kind" "$id" "$launcher")"
     fi
   done
 
@@ -114,5 +139,7 @@ while IFS=$'\t' read -r ts id title launcher; do
     printf '\n--- Unplaced sessions (seen recently, resumable, not tied to a restored window) ---\n' >&2
     first=0
   fi
-  printf '(unplaced, last seen %s) "%s" -> %s\n' "$ts" "$title" "$(resume_cmd claude "$id" "$launcher")" >&2
+  # No live pane for these, so pass an empty pane cwd: any recorded cwd differs
+  # and gets a `cd` prefix, since we cannot know where the user will paste it.
+  printf '(unplaced, last seen %s) "%s" -> %s\n' "$ts" "$title" "$(resume_at "" claude "$id" "$launcher")" >&2
 done <<<"$unplaced"
