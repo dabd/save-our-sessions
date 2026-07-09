@@ -1,12 +1,8 @@
 # save-our-sessions
 
-SOS: recover Claude Code sessions after a tmux restart.
+SOS. Recover Claude Code sessions after a tmux restart.
 
-The tmux server dies. You lose which `claude` session ran in which window. This records the mapping as sessions start, then maps restored panes back to the sessions to resume.
-
-A Claude Code plugin marketplace with one plugin:
-
-- **[tmux-session-recovery](plugins/tmux-session-recovery/)** stamps each tmux pane with its Claude session id and logs it by pane position. An unexpected restart no longer loses the pane-to-session mapping. Position is the key, so it works even when many sessions share one directory.
+The tmux server dies. You lose which `claude` session ran in which window. This plugin records the mapping as each session starts. After a restart it maps restored panes back to their sessions.
 
 ## Install
 
@@ -15,36 +11,28 @@ A Claude Code plugin marketplace with one plugin:
 /plugin install tmux-session-recovery@save-our-sessions
 ```
 
-The [plugin README](plugins/tmux-session-recovery/README.md) covers how it works, verification, and the `CLAUDE_CONFIG_DIR` note.
+One plugin: **[tmux-session-recovery](plugins/tmux-session-recovery/)**. It stamps each pane with its session id and logs it by pane position. Position survives a restart, so recovery works even when many sessions share a directory. The [plugin README](plugins/tmux-session-recovery/README.md) has the details.
 
-### The `sos` command
+## Recover
 
-After a restart there is no live Claude to ask, so recovery is a plain shell command. Alias it to the reader:
+After a crash there is no live Claude to ask. Recovery is a plain command. Alias it:
 
 ```bash
 alias sos="$HOME/projects/mystuff/save-our-sessions/plugins/tmux-session-recovery/scripts/tmux-agent-recover.sh"
 ```
 
-Type `sos` in any restored pane: it prints the `claude --resume <id>` per window on stdout and the unplaced-sessions report on stderr. It drives nothing.
+Run `sos` in any restored pane. It prints one `claude --resume <id>` per window on stdout, the unplaced-sessions report on stderr. It drives nothing.
 
-## Recovery wiring (tmux-resurrect)
+## Wire the snapshot (tmux-resurrect)
 
-The plugin captures the mapping. Recovery pairs it with [tmux-resurrect](https://github.com/tmux-plugins/tmux-resurrect).
+Recovery pairs with [tmux-resurrect](https://github.com/tmux-plugins/tmux-resurrect). Snapshot each pane's id at every resurrect save. In `tmux.conf`:
 
-1. Snapshot each pane's id alongside every resurrect save. resurrect runs the hook value with `eval` in a plain shell, so point it at the snapshot script directly (not `run-shell`). In `tmux.conf`:
+```tmux
+set -g @resurrect-hook-post-save-all '"$HOME/path/to/save-our-sessions/plugins/tmux-session-recovery/scripts/tmux-agent-snapshot.sh"'
+```
 
-   ```tmux
-   set -g @resurrect-hook-post-save-all '"$HOME/path/to/save-our-sessions/plugins/tmux-session-recovery/scripts/tmux-agent-snapshot.sh"'
-   ```
-
-   The script builds the format with real tab bytes and drops panes with no id. A `\t` in a tmux format string stays literal, so the inline one-liner version does not work.
-
-2. After a restart, run `scripts/tmux-agent-recover.sh` to print the resume command per restored pane. It reads the sidecar first, then falls back to the plugin's append log. Match is by position `(session_name, window_index, pane_index)`, with `window_name` as a tiebreak. The reader is agent-neutral and config-dir-aware: it prints `<launcher> --resume <id>` for claude (e.g. `claude-personal --resume <id>` for a session recorded under `~/.claude-personal`) or `<launcher> resume <id>` for codex, based on the recorded agent kind and launcher. Entries predating the launcher column default to `claude`.
-
-Worst-case staleness is the resurrect save interval. The append log closes the gap for a session born and killed between saves.
-
-The reader also prints, on stderr, a completeness report: sessions the recorder saw that are still resumable but were not placed into any restored window (a window reused by a later session displaces the first, so position-keyed recovery cannot restore it). stdout stays the clean per-pane list for `tmux send-keys`. See the plugin README for `TMUX_AGENT_RECENT_DAYS` and `TMUX_AGENT_PROJECT_DIRS`.
+Point at the script directly, not via `run-shell`. resurrect runs the hook with `eval` in a plain shell, and a `\t` in a tmux format string stays literal, so the inline version fails.
 
 ## License
 
-MIT. See `LICENSE`.
+MIT.
