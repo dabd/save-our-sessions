@@ -34,8 +34,17 @@ while IFS="$tab" read -r pane_id pane_pid existing; do
     | tail -1)"
   [ -n "$rollout" ] || continue
 
-  base="$(basename "$rollout" .jsonl)"
-  sid="$(printf '%s' "$base" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')"
+  # The newest open rollout may belong to a SUB-AGENT thread (a session
+  # running sub-agents keeps their rollouts open too), and resuming a
+  # sub-agent id lands in a read-only viewer. The first line's
+  # payload.session_id is the resumable ROOT session in both cases; the
+  # filename id is only the fallback.
+  sid="$(head -1 "$rollout" 2>/dev/null | python3 -c \
+    'import sys,json; print(json.load(sys.stdin)["payload"].get("session_id",""))' 2>/dev/null)"
+  if [ -z "$sid" ]; then
+    base="$(basename "$rollout" .jsonl)"
+    sid="$(printf '%s' "$base" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')"
+  fi
   [ -n "$sid" ] || continue
 
   # Idempotent, and self-healing when a pane was reused for a different
