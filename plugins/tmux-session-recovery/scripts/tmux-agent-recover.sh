@@ -53,8 +53,8 @@ resume_at() {
 
 # lookup <session> <window> <pane> -> "<agent_kind>\t<id>\t<launcher>" or empty.
 # Sidecar is the 7-column agent format (kind $5, id $6, launcher $7). The
-# persistent log is Claude-only by construction (kind "claude"), launcher in $8;
-# rows predating the launcher column default to "claude".
+# persistent log carries launcher in $8 and agent kind in $9; rows predating
+# either column default to "claude".
 lookup() {
   local s="$1" w="$2" p="$3" hit=""
   if [ -f "$sidecar" ]; then
@@ -63,8 +63,8 @@ lookup() {
   fi
   if [ -z "$hit" ] && [ -f "$log" ]; then
     hit="$(awk -F'\t' -v s="$s" -v w="$w" -v p="$p" \
-      '$3==s && $4==w && $5==p { id=$2; lchr=($8==""?"claude":$8) }
-       END { if (id != "") printf "claude\t%s\t%s", id, lchr }' "$log")"
+      '$3==s && $4==w && $5==p { id=$2; lchr=($8==""?"claude":$8); kind=($9==""?"claude":$9) }
+       END { if (id != "") printf "%s\t%s\t%s", kind, id, lchr }' "$log")"
   fi
   printf '%s' "$hit"
 }
@@ -82,7 +82,16 @@ project_dirs() {
                 "$HOME/.claude/projects" "$HOME/.claude-personal/projects"
 }
 resumable() {
-  local id="$1" d
+  local id="$1" kind="${2:-claude}" d
+  if [ "$kind" = codex ]; then
+    # Codex transcripts: <home>/sessions/YYYY/MM/DD/rollout-<ts>-<id>.jsonl
+    for d in "${CODEX_HOME:-$HOME/.codex}/sessions" \
+             "$HOME/.codex/sessions" "$HOME/.codex-personal/sessions"; do
+      [ -d "$d" ] || continue
+      [ -n "$(find "$d" -name "rollout-*-$id.jsonl" -print -quit 2>/dev/null)" ] && return 0
+    done
+    return 1
+  fi
   while IFS= read -r d; do
     [ -n "$d" ] || continue
     compgen -G "$d/*/$id.jsonl" >/dev/null 2>&1 && return 0
@@ -121,25 +130,26 @@ days="${TMUX_AGENT_RECENT_DAYS:-3}"
 cutoff="$(date -u -v-"${days}"d +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
        || date -u -d "${days} days ago" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || printf '')"
 
-# Newest log row per id -> "ts \t id \t title \t launcher", most recent first.
+# Newest log row per id -> "ts \t id \t title \t launcher \t kind", most recent
+# first.
 unplaced="$(awk -F'\t' -v cutoff="$cutoff" '
-  { id=$2; ts=$1; title=$6; lchr=($8==""?"claude":$8)
-    last_ts[id]=ts; last_title[id]=title; last_lchr[id]=lchr }
+  { id=$2; ts=$1; title=$6; lchr=($8==""?"claude":$8); kind=($9==""?"claude":$9)
+    last_ts[id]=ts; last_title[id]=title; last_lchr[id]=lchr; last_kind[id]=kind }
   END { for (id in last_ts)
           if (cutoff=="" || last_ts[id] >= cutoff)
-            printf "%s\t%s\t%s\t%s\n", last_ts[id], id, last_title[id], last_lchr[id] }' \
+            printf "%s\t%s\t%s\t%s\t%s\n", last_ts[id], id, last_title[id], last_lchr[id], last_kind[id] }' \
   "$log" | sort -r)"
 
 first=1
-while IFS=$'\t' read -r ts id title launcher; do
+while IFS=$'\t' read -r ts id title launcher kind; do
   [ -n "$id" ] || continue
   grep -qxF "$id" "$placed" && continue          # already placed into a window
-  resumable "$id" || continue                    # no transcript -> skip
+  resumable "$id" "$kind" || continue            # no transcript -> skip
   if [ "$first" = 1 ]; then
     printf '\n--- Unplaced sessions (seen recently, resumable, not tied to a restored window) ---\n' >&2
     first=0
   fi
   # No live pane for these, so pass an empty pane cwd: any recorded cwd differs
   # and gets a `cd` prefix, since we cannot know where the user will paste it.
-  printf '(unplaced, last seen %s) "%s" -> %s\n' "$ts" "$title" "$(resume_at "" claude "$id" "$launcher")" >&2
+  printf '(unplaced, last seen %s) "%s" -> %s\n' "$ts" "$title" "$(resume_at "" "$kind" "$id" "$launcher")" >&2
 done <<<"$unplaced"

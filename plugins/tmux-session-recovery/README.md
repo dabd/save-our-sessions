@@ -1,6 +1,6 @@
 # tmux-session-recovery
 
-Record which Claude Code session id runs in each tmux pane. An unexpected tmux restart no longer loses the mapping. After a restart you resume each window with the session it was running, even when many sessions share one directory.
+Record which Claude Code or Codex session id runs in each tmux pane. An unexpected tmux restart no longer loses the mapping. After a restart you resume each window with the session it was running, even when many sessions share one directory.
 
 ## The problem
 
@@ -41,9 +41,35 @@ tail -1 ~/.local/share/tmux/claude-sessions.log
 
 Outside tmux the hook is a no-op and exits 0. It never blocks a session start.
 
+## Codex capture
+
+Codex (0.145+) has the same hooks system, so the same architecture applies:
+`scripts/record-codex-session.sh` is the Codex `SessionStart` recorder. It
+stamps the pane with `@agent_kind codex`, `@agent_session_id`, and
+`@agent_launcher` (from `CODEX_HOME`: `~/.codex` gives `codex`,
+`~/.codex-personal` gives `codex-personal`), and appends the same log row shape
+with a trailing `codex` kind column.
+
+Codex has no plugin marketplace hook wiring; register it per profile in
+`<CODEX_HOME>/hooks.json`:
+
+```json
+{ "hooks": { "SessionStart": [ { "matcher": "*", "hooks": [
+  { "type": "command", "command": "/absolute/path/to/scripts/record-codex-session.sh" } ] } ] } }
+```
+
+Codex requires each hook to be trusted once; it prompts at the next
+interactive start after the entry is added. Until trusted, the hook is
+silently skipped.
+
+Sessions already running when the hook lands (or before trust is granted) can
+be backfilled: `scripts/stamp-live-codex-panes.sh` finds each pane's live
+Codex process via its open rollout file, derives the session id and launcher,
+and stamps the pane. Idempotent; run it any time before a restart.
+
 ## Configuration
 
-- `TMUX_CLAUDE_LOG` overrides the log path. Default `~/.local/share/tmux/claude-sessions.log`.
+- `TMUX_CLAUDE_LOG` overrides the log path. Default `~/.local/share/tmux/claude-sessions.log`. `TMUX_AGENT_LOG` takes precedence where both are set.
 
 ## Recovery after a restart
 
