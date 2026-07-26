@@ -26,12 +26,9 @@ descendants() {
 stamped=0 skipped=0
 tab=$'\t'
 while IFS="$tab" read -r pane_id pane_pid existing; do
-  if [ -n "$existing" ]; then
-    skipped=$((skipped+1))
-    continue
-  fi
   # lsof -p takes a comma-separated pid list. Extract the newest open rollout
-  # path across the pane's process tree, if any.
+  # path across the pane's process tree, if any. Panes without a live Codex
+  # keep whatever stamp they have (a dead pane's stamp is what recovery needs).
   rollout="$(lsof -a -p "$(descendants "$pane_pid" | paste -sd, -)" 2>/dev/null \
     | grep -oE '/[^ ]*/sessions/[0-9]{4}/[0-9]{2}/[0-9]{2}/rollout-[^ ]*\.jsonl' \
     | tail -1)"
@@ -40,6 +37,13 @@ while IFS="$tab" read -r pane_id pane_pid existing; do
   base="$(basename "$rollout" .jsonl)"
   sid="$(printf '%s' "$base" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')"
   [ -n "$sid" ] || continue
+
+  # Idempotent, and self-healing when a pane was reused for a different
+  # session: only the id matters, so re-stamp on mismatch.
+  if [ "$sid" = "$existing" ]; then
+    skipped=$((skipped+1))
+    continue
+  fi
 
   case "$rollout" in
     */.codex-personal/*) launcher="codex-personal" ;;

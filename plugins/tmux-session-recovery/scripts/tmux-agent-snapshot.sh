@@ -18,6 +18,11 @@ set -euo pipefail
 out="${TMUX_AGENT_SIDECAR:-${TMUX_CLAUDE_SIDECAR:-$HOME/.local/share/tmux/resurrect/agent-ids.last}}"
 mkdir -p "$(dirname "$out")" 2>/dev/null || true
 
+# Codex fires no SessionStart hook on `codex resume`, so a resumed pane would
+# stay unstamped (or keep a stale stamp) forever. Backfill from live process
+# state before every snapshot; best-effort, never blocks the save.
+"$(dirname "$0")/stamp-live-codex-panes.sh" >/dev/null 2>&1 || true
+
 tab=$'\t'
 # Columns: session_name, window_index, pane_index, window_name, agent_kind,
 #          session_id, agent_launcher
