@@ -67,9 +67,28 @@ be backfilled: `scripts/stamp-live-codex-panes.sh` finds each pane's live
 Codex process via its open rollout file, derives the session id and launcher,
 and stamps the pane. Idempotent; run it any time before a restart.
 
+## Window-MRU preservation
+
+For configs whose window picker sorts on a per-window `@lf` focus stamp (an
+MRU order driven by a `session-window-changed` hook and a global `@clk`
+clock): those are user options in tmux server memory, and tmux-resurrect does
+not save them. The snapshot script therefore also dumps each window's `@lf`
+by position to `~/.local/share/tmux/resurrect/window-mru.last`, and
+`scripts/restore-window-mru.sh` re-stamps windows after a restore and raises
+`@clk` to at least the highest restored stamp (never lowered, so re-running
+is safe). Wire it as the resurrect post-restore hook:
+
+```
+set -g @resurrect-hook-post-restore-all '"/path/to/scripts/restore-window-mru.sh"'
+```
+
+Configs without `@lf` are unaffected: the sidecar is empty and restore is a
+no-op.
+
 ## Configuration
 
 - `TMUX_CLAUDE_LOG` overrides the log path. Default `~/.local/share/tmux/claude-sessions.log`. `TMUX_AGENT_LOG` takes precedence where both are set.
+- `TMUX_AGENT_SIDECAR` / `TMUX_MRU_SIDECAR` override the two sidecar paths under `~/.local/share/tmux/resurrect/`.
 
 ## Recovery after a restart
 

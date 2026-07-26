@@ -29,3 +29,11 @@ fmt+="#{?@agent_launcher,#{@agent_launcher},claude}"
 
 # Keep only panes whose resolved session id (field 6) is non-empty.
 tmux list-panes -a -F "$fmt" | awk -F'\t' 'NF==7 && $6 != "" { print }' > "$out"
+
+# Window-MRU sidecar: each window's @lf focus stamp by position, so the MRU
+# picker order can be restored after a server restart (@lf/@clk are server
+# state; tmux-resurrect does not save user options). Windows never focused
+# since the hook installed carry no @lf and are dropped.
+mru="${TMUX_MRU_SIDECAR:-$HOME/.local/share/tmux/resurrect/window-mru.last}"
+tmux list-windows -a -F "#{session_name}${tab}#{window_index}${tab}#{?@lf,#{@lf},}" \
+  | awk -F'\t' 'NF==3 && $3 != "" { print }' > "$mru"
