@@ -21,6 +21,18 @@ cfg="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 launcher="$(basename "$cfg")"; launcher="${launcher#.}"
 [ -n "$launcher" ] || launcher="claude"
 
+# Third-party backend wrappers (e.g. claude-kimi) share a config dir with the
+# plain profile but set ANTHROPIC_BASE_URL to a non-Anthropic host. Resuming
+# under the plain launcher would silently reopen the session on the Anthropic
+# backend, so derive the launcher from the host's second-level label instead:
+# claude-<label>, matching the wrapper naming convention.
+if [ -n "${ANTHROPIC_BASE_URL:-}" ] &&
+   ! printf '%s' "$ANTHROPIC_BASE_URL" | grep -q 'api\.anthropic\.com'; then
+  label="$(printf '%s' "$ANTHROPIC_BASE_URL" |
+           sed -E 's#^https?://(api\.)?([^./]+).*#\2#')"
+  [ -n "$label" ] && launcher="claude-$label"
+fi
+
 # Outside tmux, or no id: nothing to record.
 [ -n "${TMUX_PANE:-}" ] || exit 0
 [ -n "$sid" ] || exit 0
