@@ -5,6 +5,27 @@ description: Use when a user asks a running Claude to recover, resume, or restor
 
 # Recovering tmux sessions
 
+## Starting the replacement server (do this first)
+
+If the dead server is being replaced from inside a live agent session, the new server
+captures that agent's environment and every restored pane inherits it. Agent-specific
+vars (`CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `CLAUDE_*`, `CODEX_*`) then silently retarget
+every resume: wrong config home, phantom trust prompts, "no saved session" for ids that
+exist. Shell functions that hard-pin their config dir survive; anything that reads the
+inherited env breaks.
+
+Start the server with those vars stripped, then scrub the tmux global environment as a
+second layer, and verify before restoring:
+
+```bash
+env $(env | grep -oE '^(CLAUDE|CODEX)[A-Z_]*' | sed 's/^/-u /') tmux start-server
+for v in $(env | grep -oE '^(CLAUDE|CODEX)[A-Z_]*'); do tmux set-environment -g -u "$v"; done
+tmux show-environment -g | grep -E 'CLAUDE|CODEX'   # must print nothing
+```
+
+With a clean server env, resumes need no per-command config pinning - the launcher
+routing below is sufficient.
+
 The `save-our-sessions` reader (`scripts/tmux-agent-recover.sh`, aliased `sos`) maps each
 restored pane back to the session it ran and prints the resume command. Read the script
 once; its comments cover the output format, launcher, cwd prefix, and unplaced report.
@@ -53,6 +74,13 @@ without it. The pane is a live shell, so claude runs as its child; no `zsh -ic` 
   let the user press it, never auto-confirm.
 - **Your own session shows up as unplaced (false positive).** The pre-crash sidecar predates
   it. Exclude your own `@claude_session_id` before acting on the unplaced list.
+- **Recorded cwd can be stale after a directory rename.** The resume command replays the
+  path recorded at save time; if the directory moved since, `cd` fails and the resume never
+  runs. The transcript still exists under the project slug of the NEW path - find it by id
+  (`find ~/.claude*/projects -name '<id>.jsonl'`), then resend with the corrected `cd`.
+- **A resume that fails with "No conversation found" for an id missing from disk is
+  unrecoverable.** That agent exited before the save; leave the pane as a clean shell and
+  say so in the report rather than retrying.
 - **`send-keys` can race:** clear-then-command sometimes swallows the command. If a pane
   stays a shell after driving, resend with a pause between clear, command, and Enter.
 
